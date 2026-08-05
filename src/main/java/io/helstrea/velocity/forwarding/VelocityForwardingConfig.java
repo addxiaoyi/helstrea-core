@@ -5,11 +5,13 @@ public record VelocityForwardingConfig(
         boolean requireProxy,
         int maxPayloadBytes,
         int maxProperties,
-        int maxPropertyValueBytes
+        int maxPropertyValueBytes,
+        int maxSupportedVersion
 ) {
     public static final int DEFAULT_MAX_PAYLOAD_BYTES = 65_536;
     public static final int DEFAULT_MAX_PROPERTIES = 64;
     public static final int DEFAULT_MAX_PROPERTY_VALUE_BYTES = 16_384;
+    public static final int DEFAULT_MAX_SUPPORTED_VERSION = 4;
 
     public VelocityForwardingConfig {
         if (maxPayloadBytes < 64 || maxPayloadBytes > 1_048_576) {
@@ -21,6 +23,26 @@ public record VelocityForwardingConfig(
         if (maxPropertyValueBytes < 1 || maxPropertyValueBytes > 262_144) {
             throw new IllegalArgumentException("maxPropertyValueBytes must be between 1 and 262144");
         }
+        if (maxSupportedVersion < 1 || maxSupportedVersion > 4) {
+            throw new IllegalArgumentException("maxSupportedVersion must be between 1 and 4");
+        }
+    }
+
+    public VelocityForwardingConfig(
+            boolean enabled,
+            boolean requireProxy,
+            int maxPayloadBytes,
+            int maxProperties,
+            int maxPropertyValueBytes
+    ) {
+        this(
+                enabled,
+                requireProxy,
+                maxPayloadBytes,
+                maxProperties,
+                maxPropertyValueBytes,
+                DEFAULT_MAX_SUPPORTED_VERSION
+        );
     }
 
     public static VelocityForwardingConfig secureDefaults() {
@@ -29,7 +51,8 @@ public record VelocityForwardingConfig(
                 true,
                 DEFAULT_MAX_PAYLOAD_BYTES,
                 DEFAULT_MAX_PROPERTIES,
-                DEFAULT_MAX_PROPERTY_VALUE_BYTES
+                DEFAULT_MAX_PROPERTY_VALUE_BYTES,
+                DEFAULT_MAX_SUPPORTED_VERSION
         );
     }
 }
