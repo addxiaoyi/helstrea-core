@@ -8,12 +8,13 @@ import java.nio.charset.StandardCharsets;
 import java.security.GeneralSecurityException;
 import java.security.MessageDigest;
 import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.List;
 import java.util.Objects;
 import javax.crypto.Mac;
 import javax.crypto.spec.SecretKeySpec;
 
-public final class VelocityForwardingCodec {
+public final class VelocityForwardingCodec implements AutoCloseable {
     public static final String PLAYER_INFO_CHANNEL = "velocity:player_info";
     public static final int MIN_SUPPORTED_FORWARDING_VERSION = 1;
     public static final int MAX_SUPPORTED_FORWARDING_VERSION = 4;
@@ -25,6 +26,7 @@ public final class VelocityForwardingCodec {
 
     private final byte[] secret;
     private final VelocityForwardingConfig config;
+    private volatile boolean closed;
 
     public VelocityForwardingCodec(byte[] secret, VelocityForwardingConfig config)
             throws VelocityForwardingException {
@@ -47,13 +49,15 @@ public final class VelocityForwardingCodec {
         return new VelocityForwardingCodec(secret.getBytes(StandardCharsets.UTF_8), config);
     }
 
-    public byte[] createVersionRequest() {
+    public byte[] createVersionRequest() throws VelocityForwardingException {
+        requireOpen();
         ForwardingWriter writer = new ForwardingWriter();
         writer.writeVarInt(config.maxSupportedVersion());
         return writer.toByteArray();
     }
 
     public ForwardedPlayer decode(byte[] signedPayload) throws VelocityForwardingException {
+        requireOpen();
         Objects.requireNonNull(signedPayload, "signedPayload");
         if (signedPayload.length < SIGNATURE_BYTES + 1) {
             throw new VelocityForwardingException(
@@ -135,6 +139,7 @@ public final class VelocityForwardingCodec {
     }
 
     public byte[] encode(ForwardedPlayer player) throws VelocityForwardingException {
+        requireOpen();
         Objects.requireNonNull(player, "player");
         VelocityForwardingVersion version = player.version();
         if (version.id() > config.maxSupportedVersion()) {
@@ -204,6 +209,19 @@ public final class VelocityForwardingCodec {
             );
         }
         return encode(player);
+    }
+
+    public boolean closed() {
+        return closed;
+    }
+
+    @Override
+    public synchronized void close() {
+        if (closed) {
+            return;
+        }
+        Arrays.fill(secret, (byte) 0);
+        closed = true;
     }
 
     private static ForwardingExtension readExtension(
@@ -312,7 +330,8 @@ public final class VelocityForwardingCodec {
         }
     }
 
-    private byte[] sign(byte[] payload) throws VelocityForwardingException {
+    private synchronized byte[] sign(byte[] payload) throws VelocityForwardingException {
+        requireOpen();
         try {
             Mac mac = Mac.getInstance("HmacSHA256");
             mac.init(new SecretKeySpec(secret, "HmacSHA256"));
@@ -322,6 +341,15 @@ public final class VelocityForwardingCodec {
                     ForwardingError.MALFORMED_PAYLOAD,
                     "HMAC-SHA256 is unavailable",
                     exception
+            );
+        }
+    }
+
+    private void requireOpen() throws VelocityForwardingException {
+        if (closed) {
+            throw new VelocityForwardingException(
+                    ForwardingError.FORWARDING_CLOSED,
+                    "Velocity forwarding codec is closed"
             );
         }
     }
