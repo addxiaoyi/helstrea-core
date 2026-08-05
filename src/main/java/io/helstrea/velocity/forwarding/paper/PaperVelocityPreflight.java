@@ -30,4 +30,12 @@ public final class PaperVelocityPreflight {
         }
         return new PaperVelocityPreflightResult(issues);
     }
+
+    public static void requireValid(PaperVelocitySettings settings)
+            throws PaperVelocityPreflightException {
+        PaperVelocityPreflightResult result = inspect(settings);
+        if (!result.valid()) {
+            throw new PaperVelocityPreflightException(result.issues());
+        }
+    }
 }
