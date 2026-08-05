@@ -14,33 +14,65 @@ public final class VelocityForwardingSelfTest {
 
     public static void main(String[] args) throws Exception {
         roundTripSignedProfile();
+        roundTripLazySession();
+        preservesSignedKeyExtension();
+        rejectsMissingKeyExtension();
         rejectsTamperedPayload();
         rejectsWrongSecret();
         rejectsTruncatedPayload();
-        rejectsUnsupportedVersion();
+        rejectsUnsupportedVersionForV1Encoder();
+        rejectsVersionAboveAdvertisedMaximum();
         rejectsTrailingData();
         rejectsInvalidUsername();
-        createsVersionOneChallenge();
+        createsVersionFourChallenge();
+        createsConfiguredVersionOneChallenge();
         rejectsMissingProxyResponse();
         System.out.println("Velocity forwarding self-test: PASS");
     }
 
     private static void roundTripSignedProfile() throws Exception {
         VelocityForwardingCodec codec = codec(SECRET);
-        ForwardedPlayer expected = player("Alex_01");
+        ForwardedPlayer expected = player(1, ForwardingExtension.empty(), "Alex_01");
         ForwardedPlayer actual = codec.decode(codec.encodeV1(expected));
-        check(expected.equals(actual), "round trip must preserve player information");
+        check(expected.equals(actual), "v1 round trip must preserve player information");
+    }
+
+    private static void roundTripLazySession() throws Exception {
+        VelocityForwardingCodec codec = codec(SECRET);
+        ForwardedPlayer expected = player(4, ForwardingExtension.empty(), "Alex_01");
+        ForwardedPlayer actual = codec.decode(codec.encode(expected));
+        check(expected.equals(actual), "v4 round trip must preserve player information");
+        check(
+                actual.version() == VelocityForwardingVersion.MODERN_LAZY_SESSION,
+                "v4 must decode as MODERN_LAZY_SESSION"
+        );
+    }
+
+    private static void preservesSignedKeyExtension() throws Exception {
+        VelocityForwardingCodec codec = codec(SECRET);
+        ForwardingExtension extension = ForwardingExtension.of(new byte[] {1, 2, 3, 4, 5});
+        ForwardedPlayer expected = player(3, extension, "Alex_01");
+        ForwardedPlayer actual = codec.decode(codec.encode(expected));
+        check(expected.equals(actual), "v3 extension bytes must survive a signed round trip");
+        check(actual.extension().size() == 5, "v3 extension size must be preserved");
+    }
+
+    private static void rejectsMissingKeyExtension() throws Exception {
+        ForwardedPlayer invalid = player(2, ForwardingExtension.empty(), "Alex_01");
+        expect(ForwardingError.MALFORMED_PAYLOAD, () -> codec(SECRET).encode(invalid));
     }
 
     private static void rejectsTamperedPayload() throws Exception {
         VelocityForwardingCodec codec = codec(SECRET);
-        byte[] encoded = codec.encodeV1(player("Alex_01"));
+        byte[] encoded = codec.encodeV1(player(1, ForwardingExtension.empty(), "Alex_01"));
         encoded[encoded.length - 1] ^= 1;
         expect(ForwardingError.INVALID_SIGNATURE, () -> codec.decode(encoded));
     }
 
     private static void rejectsWrongSecret() throws Exception {
-        byte[] encoded = codec(SECRET).encodeV1(player("Alex_01"));
+        byte[] encoded = codec(SECRET).encodeV1(
+                player(1, ForwardingExtension.empty(), "Alex_01")
+        );
         expect(
                 ForwardingError.INVALID_SIGNATURE,
                 () -> codec("different secret".getBytes(StandardCharsets.UTF_8))
@@ -55,23 +87,37 @@ public final class VelocityForwardingSelfTest {
         );
     }
 
-    private static void rejectsUnsupportedVersion() throws Exception {
-        ForwardedPlayer unsupported = new ForwardedPlayer(
-                2,
-                InetAddress.getByName("127.0.0.1"),
-                UUID.randomUUID(),
-                "Alex_01",
-                List.of()
-        );
+    private static void rejectsUnsupportedVersionForV1Encoder() throws Exception {
+        ForwardedPlayer unsupported = player(2, ForwardingExtension.of(new byte[] {1}), "Alex_01");
         expect(
                 ForwardingError.UNSUPPORTED_VERSION,
                 () -> codec(SECRET).encodeV1(unsupported)
         );
     }
 
+    private static void rejectsVersionAboveAdvertisedMaximum() throws Exception {
+        byte[] versionFour = codec(SECRET).encode(
+                player(4, ForwardingExtension.empty(), "Alex_01")
+        );
+        VelocityForwardingConfig versionOneConfig = new VelocityForwardingConfig(
+                true,
+                true,
+                VelocityForwardingConfig.DEFAULT_MAX_PAYLOAD_BYTES,
+                VelocityForwardingConfig.DEFAULT_MAX_PROPERTIES,
+                VelocityForwardingConfig.DEFAULT_MAX_PROPERTY_VALUE_BYTES,
+                1
+        );
+        VelocityForwardingCodec versionOneCodec =
+                new VelocityForwardingCodec(SECRET, versionOneConfig);
+        expect(
+                ForwardingError.UNSUPPORTED_VERSION,
+                () -> versionOneCodec.decode(versionFour)
+        );
+    }
+
     private static void rejectsTrailingData() throws Exception {
         VelocityForwardingCodec codec = codec(SECRET);
-        byte[] valid = codec.encodeV1(player("Alex_01"));
+        byte[] valid = codec.encodeV1(player(1, ForwardingExtension.empty(), "Alex_01"));
         byte[] body = new byte[
                 valid.length - VelocityForwardingCodec.SIGNATURE_BYTES + 1
         ];
@@ -90,20 +136,14 @@ public final class VelocityForwardingSelfTest {
     }
 
     private static void rejectsInvalidUsername() throws Exception {
-        ForwardedPlayer invalid = new ForwardedPlayer(
-                1,
-                InetAddress.getByName("127.0.0.1"),
-                UUID.randomUUID(),
-                "bad name",
-                List.of()
-        );
+        ForwardedPlayer invalid = player(1, ForwardingExtension.empty(), "bad name");
         expect(
                 ForwardingError.INVALID_USERNAME,
                 () -> codec(SECRET).encodeV1(invalid)
         );
     }
 
-    private static void createsVersionOneChallenge() throws Exception {
+    private static void createsVersionFourChallenge() throws Exception {
         VelocityForwardingConfig config = VelocityForwardingConfig.secureDefaults();
         VelocityForwardingLoginSupport support =
                 new VelocityForwardingLoginSupport(codec(SECRET), config);
@@ -114,8 +154,25 @@ public final class VelocityForwardingSelfTest {
                 "challenge channel must be velocity:player_info"
         );
         check(
-                challenge.payload().length == 1 && challenge.payload()[0] == 1,
-                "challenge must advertise forwarding version 1"
+                challenge.payload().length == 1 && challenge.payload()[0] == 4,
+                "default challenge must advertise forwarding version 4"
+        );
+    }
+
+    private static void createsConfiguredVersionOneChallenge() throws Exception {
+        VelocityForwardingConfig config = new VelocityForwardingConfig(
+                true,
+                true,
+                VelocityForwardingConfig.DEFAULT_MAX_PAYLOAD_BYTES,
+                VelocityForwardingConfig.DEFAULT_MAX_PROPERTIES,
+                VelocityForwardingConfig.DEFAULT_MAX_PROPERTY_VALUE_BYTES,
+                1
+        );
+        VelocityForwardingCodec codec = new VelocityForwardingCodec(SECRET, config);
+        byte[] request = codec.createVersionRequest();
+        check(
+                request.length == 1 && request[0] == 1,
+                "configured challenge must advertise forwarding version 1"
         );
     }
 
@@ -129,9 +186,13 @@ public final class VelocityForwardingSelfTest {
         );
     }
 
-    private static ForwardedPlayer player(String username) throws Exception {
+    private static ForwardedPlayer player(
+            int version,
+            ForwardingExtension extension,
+            String username
+    ) throws Exception {
         return new ForwardedPlayer(
-                1,
+                version,
                 InetAddress.getByName("2001:db8::10"),
                 UUID.fromString("123e4567-e89b-12d3-a456-426614174000"),
                 username,
@@ -142,7 +203,8 @@ public final class VelocityForwardingSelfTest {
                                 "base64-signature"
                         ),
                         ProfileProperty.unsigned("helstrea", "native-velocity")
-                )
+                ),
+                extension
         );
     }
 
