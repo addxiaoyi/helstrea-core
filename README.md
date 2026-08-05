@@ -18,10 +18,12 @@ A Gradle `check` task is also configured for integration with the complete local
 - HMAC-SHA-256 verification before parsing
 - strict UUID, IP address, username and profile-property decoding
 - authenticated v2/v3 profile-key extension preservation
-- one-shot login sessions with transaction matching and replay rejection
+- one-shot login sessions with transaction matching, replay rejection and deadlines
 - atomic forwarded-identity application SPI
+- secure `VelocityForwardingBackend` integration facade
 - Velocity-compatible UTF-8 secret-file loading
 - trusted proxy IPv4/IPv6 CIDR gate
+- forwarding secret clearing and login rejection on shutdown
 - Paper Velocity configuration preflight and startup gate
 - deterministic self-tests and GitHub Actions CI
 
