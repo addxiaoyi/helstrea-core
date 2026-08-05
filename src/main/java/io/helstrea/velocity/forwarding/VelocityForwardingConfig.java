@@ -6,12 +6,14 @@ public record VelocityForwardingConfig(
         int maxPayloadBytes,
         int maxProperties,
         int maxPropertyValueBytes,
-        int maxSupportedVersion
+        int maxSupportedVersion,
+        long responseTimeoutMillis
 ) {
     public static final int DEFAULT_MAX_PAYLOAD_BYTES = 65_536;
     public static final int DEFAULT_MAX_PROPERTIES = 64;
     public static final int DEFAULT_MAX_PROPERTY_VALUE_BYTES = 16_384;
     public static final int DEFAULT_MAX_SUPPORTED_VERSION = 4;
+    public static final long DEFAULT_RESPONSE_TIMEOUT_MILLIS = 10_000;
 
     public VelocityForwardingConfig {
         if (maxPayloadBytes < 64 || maxPayloadBytes > 1_048_576) {
@@ -25,6 +27,11 @@ public record VelocityForwardingConfig(
         }
         if (maxSupportedVersion < 1 || maxSupportedVersion > 4) {
             throw new IllegalArgumentException("maxSupportedVersion must be between 1 and 4");
+        }
+        if (responseTimeoutMillis < 100 || responseTimeoutMillis > 60_000) {
+            throw new IllegalArgumentException(
+                    "responseTimeoutMillis must be between 100 and 60000"
+            );
         }
     }
 
@@ -41,7 +48,27 @@ public record VelocityForwardingConfig(
                 maxPayloadBytes,
                 maxProperties,
                 maxPropertyValueBytes,
-                DEFAULT_MAX_SUPPORTED_VERSION
+                DEFAULT_MAX_SUPPORTED_VERSION,
+                DEFAULT_RESPONSE_TIMEOUT_MILLIS
+        );
+    }
+
+    public VelocityForwardingConfig(
+            boolean enabled,
+            boolean requireProxy,
+            int maxPayloadBytes,
+            int maxProperties,
+            int maxPropertyValueBytes,
+            int maxSupportedVersion
+    ) {
+        this(
+                enabled,
+                requireProxy,
+                maxPayloadBytes,
+                maxProperties,
+                maxPropertyValueBytes,
+                maxSupportedVersion,
+                DEFAULT_RESPONSE_TIMEOUT_MILLIS
         );
     }
 
@@ -52,7 +79,8 @@ public record VelocityForwardingConfig(
                 DEFAULT_MAX_PAYLOAD_BYTES,
                 DEFAULT_MAX_PROPERTIES,
                 DEFAULT_MAX_PROPERTY_VALUE_BYTES,
-                DEFAULT_MAX_SUPPORTED_VERSION
+                DEFAULT_MAX_SUPPORTED_VERSION,
+                DEFAULT_RESPONSE_TIMEOUT_MILLIS
         );
     }
 }
