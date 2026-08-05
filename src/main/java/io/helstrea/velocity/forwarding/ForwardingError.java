@@ -2,6 +2,10 @@ package io.helstrea.velocity.forwarding;
 
 public enum ForwardingError {
     EMPTY_SECRET,
+    FORWARDING_DISABLED,
+    MISSING_RESPONSE,
+    TRANSACTION_MISMATCH,
+    RESPONSE_ALREADY_CONSUMED,
     PAYLOAD_TOO_SMALL,
     PAYLOAD_TOO_LARGE,
     INVALID_SIGNATURE,
