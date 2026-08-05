@@ -21,3 +21,7 @@ java -ea -cp "$OUT/main:$OUT/test" \
   io.helstrea.velocity.forwarding.VelocityForwardingLoginCoordinatorSelfTest
 java -ea -cp "$OUT/main:$OUT/test" \
   io.helstrea.velocity.forwarding.paper.PaperVelocityPreflightSelfTest
+java -ea -cp "$OUT/main:$OUT/test" \
+  io.helstrea.velocity.forwarding.security.ForwardingSecretLoaderSelfTest
+java -ea -cp "$OUT/main:$OUT/test" \
+  io.helstrea.velocity.forwarding.security.TrustedProxyPolicySelfTest
