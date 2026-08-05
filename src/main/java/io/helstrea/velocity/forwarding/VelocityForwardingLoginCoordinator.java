@@ -25,7 +25,9 @@ public final class VelocityForwardingLoginCoordinator<C> {
     ) throws VelocityForwardingException {
         Objects.requireNonNull(connection, "connection");
         ForwardedPlayer player = session.acceptResponse(responseTransactionId, response);
-        identityApplier.apply(connection, player);
+        if (player != null) {
+            identityApplier.apply(connection, player);
+        }
         return player;
     }
 
