@@ -59,6 +59,10 @@ public final class ForwardingReader {
         return new UUID(readLong(), readLong());
     }
 
+    public byte[] readRemainingBytes() throws VelocityForwardingException {
+        return readBytes(remaining());
+    }
+
     private long readLong() throws VelocityForwardingException {
         byte[] value = readBytes(Long.BYTES);
         long decoded = 0;
