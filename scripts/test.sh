@@ -15,3 +15,7 @@ find "$ROOT/src/test/java" -name '*.java' -print0 \
 
 java -ea -cp "$OUT/main:$OUT/test" \
   io.helstrea.velocity.forwarding.VelocityForwardingSelfTest
+java -ea -cp "$OUT/main:$OUT/test" \
+  io.helstrea.velocity.forwarding.VelocityForwardingSessionSelfTest
+java -ea -cp "$OUT/main:$OUT/test" \
+  io.helstrea.velocity.forwarding.paper.PaperVelocityPreflightSelfTest
