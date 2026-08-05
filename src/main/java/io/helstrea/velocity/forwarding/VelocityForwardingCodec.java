@@ -15,7 +15,8 @@ import javax.crypto.spec.SecretKeySpec;
 
 public final class VelocityForwardingCodec {
     public static final String PLAYER_INFO_CHANNEL = "velocity:player_info";
-    public static final int SUPPORTED_FORWARDING_VERSION = 1;
+    public static final int MIN_SUPPORTED_FORWARDING_VERSION = 1;
+    public static final int MAX_SUPPORTED_FORWARDING_VERSION = 4;
     public static final int SIGNATURE_BYTES = 32;
 
     private static final int MAX_ADDRESS_BYTES = 255;
@@ -48,7 +49,7 @@ public final class VelocityForwardingCodec {
 
     public byte[] createVersionRequest() {
         ForwardingWriter writer = new ForwardingWriter();
-        writer.writeVarInt(SUPPORTED_FORWARDING_VERSION);
+        writer.writeVarInt(config.maxSupportedVersion());
         return writer.toByteArray();
     }
 
@@ -81,11 +82,14 @@ public final class VelocityForwardingCodec {
         }
 
         ForwardingReader reader = new ForwardingReader(payload);
-        int version = reader.readVarInt();
-        if (version != SUPPORTED_FORWARDING_VERSION) {
+        VelocityForwardingVersion version = VelocityForwardingVersion.fromId(reader.readVarInt());
+        if (version.id() > config.maxSupportedVersion()) {
             throw new VelocityForwardingException(
                     ForwardingError.UNSUPPORTED_VERSION,
-                    "Unsupported Velocity forwarding version: " + version
+                    "Velocity selected forwarding version "
+                            + version.id()
+                            + " but this backend advertised "
+                            + config.maxSupportedVersion()
             );
         }
 
@@ -119,22 +123,24 @@ public final class VelocityForwardingCodec {
                     : ProfileProperty.unsigned(name, value));
         }
 
-        if (reader.remaining() != 0) {
-            throw new VelocityForwardingException(
-                    ForwardingError.TRAILING_DATA,
-                    "Forwarding payload contains trailing data"
-            );
-        }
-
-        return new ForwardedPlayer(version, address, playerId, username, properties);
+        ForwardingExtension extension = readExtension(version, reader);
+        return new ForwardedPlayer(
+                version.id(),
+                address,
+                playerId,
+                username,
+                properties,
+                extension
+        );
     }
 
-    public byte[] encodeV1(ForwardedPlayer player) throws VelocityForwardingException {
+    public byte[] encode(ForwardedPlayer player) throws VelocityForwardingException {
         Objects.requireNonNull(player, "player");
-        if (player.forwardingVersion() != SUPPORTED_FORWARDING_VERSION) {
+        VelocityForwardingVersion version = player.version();
+        if (version.id() > config.maxSupportedVersion()) {
             throw new VelocityForwardingException(
                     ForwardingError.UNSUPPORTED_VERSION,
-                    "Only forwarding version 1 can be encoded"
+                    "Forwarding version exceeds the configured maximum"
             );
         }
         validateUsername(player.username());
@@ -144,20 +150,36 @@ public final class VelocityForwardingCodec {
                     "Profile property count exceeds configured limit"
             );
         }
+        validateExtension(version, player.extension());
 
         ForwardingWriter writer = new ForwardingWriter();
-        writer.writeVarInt(SUPPORTED_FORWARDING_VERSION);
+        writer.writeVarInt(version.id());
         writer.writeString(player.address().getHostAddress());
         writer.writeUuid(player.playerId());
         writer.writeString(player.username());
         writer.writeVarInt(player.properties().size());
 
         for (ProfileProperty property : player.properties()) {
+            requireUtf8Length(property.name(), MAX_PROPERTY_NAME_BYTES, "property name");
+            requireUtf8Length(
+                    property.value(),
+                    config.maxPropertyValueBytes(),
+                    "property value"
+            );
             writer.writeString(property.name());
             writer.writeString(property.value());
             writer.writeBoolean(property.signature().isPresent());
-            property.signature().ifPresent(writer::writeString);
+            if (property.signature().isPresent()) {
+                String signature = property.signature().orElseThrow();
+                requireUtf8Length(
+                        signature,
+                        config.maxPropertyValueBytes(),
+                        "property signature"
+                );
+                writer.writeString(signature);
+            }
         }
+        writer.writeBytes(player.extension().bytes());
 
         byte[] payload = writer.toByteArray();
         if (payload.length + SIGNATURE_BYTES > config.maxPayloadBytes()) {
@@ -172,6 +194,57 @@ public final class VelocityForwardingCodec {
         System.arraycopy(signature, 0, signed, 0, signature.length);
         System.arraycopy(payload, 0, signed, signature.length, payload.length);
         return signed;
+    }
+
+    public byte[] encodeV1(ForwardedPlayer player) throws VelocityForwardingException {
+        if (player.forwardingVersion() != VelocityForwardingVersion.MODERN_DEFAULT.id()) {
+            throw new VelocityForwardingException(
+                    ForwardingError.UNSUPPORTED_VERSION,
+                    "encodeV1 only accepts forwarding version 1"
+            );
+        }
+        return encode(player);
+    }
+
+    private static ForwardingExtension readExtension(
+            VelocityForwardingVersion version,
+            ForwardingReader reader
+    ) throws VelocityForwardingException {
+        if (version.hasPlatformExtension()) {
+            byte[] bytes = reader.readRemainingBytes();
+            if (bytes.length == 0) {
+                throw new VelocityForwardingException(
+                        ForwardingError.MALFORMED_PAYLOAD,
+                        "Forwarding version " + version.id() + " requires profile-key data"
+                );
+            }
+            return ForwardingExtension.of(bytes);
+        }
+        if (reader.remaining() != 0) {
+            throw new VelocityForwardingException(
+                    ForwardingError.TRAILING_DATA,
+                    "Forwarding payload contains trailing data"
+            );
+        }
+        return ForwardingExtension.empty();
+    }
+
+    private static void validateExtension(
+            VelocityForwardingVersion version,
+            ForwardingExtension extension
+    ) throws VelocityForwardingException {
+        if (version.hasPlatformExtension() && extension.isEmpty()) {
+            throw new VelocityForwardingException(
+                    ForwardingError.MALFORMED_PAYLOAD,
+                    "Forwarding version " + version.id() + " requires profile-key data"
+            );
+        }
+        if (!version.hasPlatformExtension() && !extension.isEmpty()) {
+            throw new VelocityForwardingException(
+                    ForwardingError.TRAILING_DATA,
+                    "Forwarding version " + version.id() + " does not accept extension data"
+            );
+        }
     }
 
     private InetAddress readAddress(ForwardingReader reader)
@@ -226,6 +299,16 @@ public final class VelocityForwardingCodec {
                         "Forwarded username contains an invalid character"
                 );
             }
+        }
+    }
+
+    private static void requireUtf8Length(String value, int maxBytes, String field)
+            throws VelocityForwardingException {
+        if (value.getBytes(StandardCharsets.UTF_8).length > maxBytes) {
+            throw new VelocityForwardingException(
+                    ForwardingError.MALFORMED_PAYLOAD,
+                    field + " length exceeds limit"
+            );
         }
     }
 
