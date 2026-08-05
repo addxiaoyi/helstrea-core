@@ -1,0 +1,14 @@
+package io.helstrea.velocity.forwarding;
+
+public enum ForwardingError {
+    EMPTY_SECRET,
+    PAYLOAD_TOO_SMALL,
+    PAYLOAD_TOO_LARGE,
+    INVALID_SIGNATURE,
+    MALFORMED_PAYLOAD,
+    UNSUPPORTED_VERSION,
+    INVALID_ADDRESS,
+    INVALID_USERNAME,
+    TOO_MANY_PROPERTIES,
+    TRAILING_DATA
+}
