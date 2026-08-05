@@ -16,7 +16,12 @@ public final class VelocityForwardingLoginSupport {
 
     public VelocityForwardingSession beginSession(int transactionId)
             throws VelocityForwardingException {
-        return new VelocityForwardingSession(this, transactionId);
+        return new VelocityForwardingSession(
+                this,
+                transactionId,
+                config.responseTimeoutMillis(),
+                System::nanoTime
+        );
     }
 
     public LoginChallenge createChallenge(int transactionId)
