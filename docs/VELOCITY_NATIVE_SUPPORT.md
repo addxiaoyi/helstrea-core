@@ -15,31 +15,41 @@ The forwarding core implements `velocity:player_info` modern forwarding versions
 - strict payload, property, string, and extension limits
 - one-shot login sessions with transaction-ID matching
 - replay rejection after a matched response is consumed
+- configurable monotonic response deadline
 - verified identity application through a platform adapter SPI
 - trusted proxy IPv4 and IPv6 CIDR enforcement before a challenge is sent
 - Velocity-compatible UTF-8 forwarding secret loading
+- secret erasure and new-login rejection during shutdown
 - a platform-neutral Paper configuration preflight and startup gate
 
-The secure default advertises version 4. A deployment can lower `maxSupportedVersion` to 1 through 4. A proxy response above the advertised maximum is rejected.
+The secure default advertises version 4 and uses a 10-second response deadline. A deployment can select forwarding version 1 through 4 and a response timeout from 100 to 60000 milliseconds. A response above the advertised version or after the deadline is rejected.
 
 Versions 2 and 3 contain Minecraft-version-specific profile public-key structures. The shared core preserves those HMAC-authenticated bytes as an immutable `ForwardingExtension`; the matching platform adapter must decode and validate them using that Minecraft version's native key types. Versions 1 and 4 reject any trailing extension data.
 
 ## Forge and NeoForge integration contract
 
-A Forge or NeoForge login adapter must:
+A Forge or NeoForge adapter should construct one `VelocityForwardingBackend` during module startup:
 
-1. Read the forwarding secret with `ForwardingSecretLoader.load(...)`.
-2. Build a non-empty `TrustedProxyPolicy` from explicit proxy CIDRs.
-3. Create a `VelocityForwardingEndpoint`.
-4. Pass the connection's actual remote IP to `endpoint.beginSession(...)` before sending any query.
-5. Send the returned challenge through the platform login-query mechanism.
-6. Match and consume the actual response transaction ID.
-7. Atomically replace the connection address and authenticated game profile through `ForwardedIdentityApplier`.
-8. For versions 2 or 3, decode and validate the preserved key extension before accepting login.
-9. Reject null, malformed, unsigned, incorrectly signed, mismatched, repeated, untrusted, or unapplicable responses.
-10. Continue platform login work on the platform-required login or network thread.
+```java
+VelocityForwardingBackend backend = VelocityForwardingBackend.create(
+        secretPath,
+        trustedProxyCidrs,
+        forwardingConfig
+);
+```
 
-The session is consumed before a matched response is decoded. A malformed response or identity-application failure cannot reopen the same login session. The platform must disconnect instead of continuing with an unverified or partially replaced identity.
+For each login it must:
+
+1. Read the actual remote socket address before any forwarded identity is applied.
+2. Call `backend.beginLogin(remoteAddress, transactionId, identityApplier)`.
+3. Send `coordinator.challenge()` through the platform login-query mechanism.
+4. Pass the actual response transaction ID and bytes to `coordinator.acceptResponse(...)`.
+5. Atomically replace the connection address and authenticated game profile through `ForwardedIdentityApplier`.
+6. For versions 2 or 3, decode and validate the preserved key extension before accepting login.
+7. Reject null, malformed, unsigned, incorrectly signed, mismatched, repeated, expired, untrusted, or unapplicable responses.
+8. Continue platform login work on the platform-required login or network thread.
+
+The session is consumed before a matched response is decoded. A malformed, expired, or unapplicable response cannot reopen the same login session. The platform must disconnect instead of continuing with an unverified or partially replaced identity.
 
 Forge 1.20.1 and NeoForge 1.21.1 target modern forwarding version 4, whose forwarded identity layout does not append profile-key bytes.
 
@@ -66,13 +76,13 @@ Velocity reads its forwarding secret as UTF-8, removes line separators, and conc
 - empty secrets
 - files larger than 4096 bytes
 
-The same secret file can therefore be mounted into Velocity and the Helstrea backend without newline-dependent HMAC mismatches.
+The same secret file can be mounted into Velocity and the Helstrea backend without newline-dependent HMAC mismatches. Platform code should prefer `VelocityForwardingBackend.create(...)` over creating a codec from an immutable Java `String`.
 
 ## Network boundary
 
 Modern forwarding authenticates player information; it is not a firewall.
 
-A backend adapter must use `VelocityForwardingEndpoint`, not call `VelocityForwardingLoginSupport.beginSession(...)` directly. The endpoint checks the remote connection address against a non-empty `TrustedProxyPolicy` before generating the login challenge.
+`VelocityForwardingBackend` checks the remote connection address against a non-empty `TrustedProxyPolicy` before generating a login challenge.
 
 Example allowlist:
 
@@ -83,6 +93,30 @@ Example allowlist:
 ```
 
 Hostnames, scoped IPv6 addresses, invalid prefixes, and an empty allowlist are rejected. Network firewalls must still restrict the backend port to the proxy network.
+
+## Lifecycle contract
+
+Startup order:
+
+```text
+load config
+→ validate trusted proxy CIDRs
+→ load forwarding secret
+→ create VelocityForwardingBackend
+→ register platform login hooks
+→ accept players
+```
+
+Shutdown order:
+
+```text
+stop accepting new logins
+→ unregister or disable platform login hooks
+→ close VelocityForwardingBackend
+→ release remaining platform resources
+```
+
+`close()` is idempotent. It clears the codec's in-memory secret, rejects new sessions, and causes pending responses that have not yet been authenticated to fail with `FORWARDING_CLOSED`.
 
 ## Remaining platform work
 
@@ -95,4 +129,4 @@ The public repository still needs the complete local server-core source before t
 - real Velocity-to-backend login tests
 - Forge/FML 1.20.1 proxy handshake compatibility
 
-The codec, source-address gate, one-shot session, login coordinator, identity SPI, and Paper startup gate are stable integration boundaries for those hooks.
+The backend facade, codec, source-address gate, one-shot session, identity SPI, and Paper startup gate are stable integration boundaries for those hooks.
