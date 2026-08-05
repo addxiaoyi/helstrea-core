@@ -3,8 +3,6 @@ package io.helstrea.velocity.forwarding.security;
 import io.helstrea.velocity.forwarding.ForwardingError;
 import io.helstrea.velocity.forwarding.VelocityForwardingException;
 import java.io.IOException;
-import java.nio.charset.CharacterCodingException;
-import java.nio.charset.CodingErrorAction;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
@@ -42,16 +40,8 @@ public final class ForwardingSecretLoader {
                                 + " bytes"
                 );
             }
-            byte[] raw = Files.readAllBytes(path);
-            String decoded = StandardCharsets.UTF_8
-                    .newDecoder()
-                    .onMalformedInput(CodingErrorAction.REPORT)
-                    .onUnmappableCharacter(CodingErrorAction.REPORT)
-                    .decode(java.nio.ByteBuffer.wrap(raw))
-                    .toString();
-            List<String> lines = decoded.lines().toList();
-            String secret = String.join("", lines);
-            byte[] bytes = secret.getBytes(StandardCharsets.UTF_8);
+            List<String> lines = Files.readAllLines(path, StandardCharsets.UTF_8);
+            byte[] bytes = String.join("", lines).getBytes(StandardCharsets.UTF_8);
             if (bytes.length == 0) {
                 throw new VelocityForwardingException(
                         ForwardingError.EMPTY_SECRET,
@@ -59,16 +49,10 @@ public final class ForwardingSecretLoader {
                 );
             }
             return bytes;
-        } catch (CharacterCodingException exception) {
-            throw new VelocityForwardingException(
-                    ForwardingError.SECRET_FILE_INVALID,
-                    "Velocity forwarding secret file is not valid UTF-8",
-                    exception
-            );
         } catch (IOException exception) {
             throw new VelocityForwardingException(
                     ForwardingError.SECRET_FILE_INVALID,
-                    "Unable to read Velocity forwarding secret file: " + path,
+                    "Unable to read a valid UTF-8 Velocity forwarding secret file: " + path,
                     exception
             );
         }
