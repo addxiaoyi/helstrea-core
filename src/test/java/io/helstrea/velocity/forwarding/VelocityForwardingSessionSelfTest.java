@@ -4,6 +4,8 @@ import java.net.InetAddress;
 import java.nio.charset.StandardCharsets;
 import java.util.List;
 import java.util.UUID;
+import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicLong;
 
 public final class VelocityForwardingSessionSelfTest {
     private static final byte[] SECRET =
@@ -17,6 +19,7 @@ public final class VelocityForwardingSessionSelfTest {
         rejectsTransactionMismatch();
         rejectsRepeatedResponse();
         rejectsMissingRequiredResponse();
+        rejectsExpiredResponse();
         System.out.println("Velocity forwarding session self-test: PASS");
     }
 
@@ -57,6 +60,32 @@ public final class VelocityForwardingSessionSelfTest {
                 () -> session.acceptResponse(41, null)
         );
         check(session.consumed(), "matched missing response must consume the session");
+    }
+
+    private static void rejectsExpiredResponse() throws Exception {
+        VelocityForwardingCodec codec = codec();
+        AtomicLong ticker = new AtomicLong();
+        VelocityForwardingSession session = new VelocityForwardingSession(
+                support(codec),
+                41,
+                100,
+                ticker::get
+        );
+        ticker.set(TimeUnit.MILLISECONDS.toNanos(101));
+        check(session.expired(), "session must report expiration after its deadline");
+        expect(
+                ForwardingError.TRANSACTION_MISMATCH,
+                () -> session.acceptResponse(42, codec.encodeV1(player()))
+        );
+        check(
+                !session.consumed(),
+                "unrelated transaction must not consume an expired session"
+        );
+        expect(
+                ForwardingError.RESPONSE_EXPIRED,
+                () -> session.acceptResponse(41, codec.encodeV1(player()))
+        );
+        check(session.consumed(), "matched expired response must consume the session");
     }
 
     private static VelocityForwardingLoginSupport support(VelocityForwardingCodec codec) {
