@@ -2,6 +2,7 @@ package io.helstrea.velocity.forwarding.internal;
 
 import java.io.ByteArrayOutputStream;
 import java.nio.charset.StandardCharsets;
+import java.util.Objects;
 import java.util.UUID;
 
 public final class ForwardingWriter {
@@ -32,6 +33,10 @@ public final class ForwardingWriter {
     public void writeUuid(UUID value) {
         writeLong(value.getMostSignificantBits());
         writeLong(value.getLeastSignificantBits());
+    }
+
+    public void writeBytes(byte[] value) {
+        bytes.writeBytes(Objects.requireNonNull(value, "value"));
     }
 
     public byte[] toByteArray() {
