@@ -14,9 +14,18 @@ public final class VelocityForwardingLoginSupport {
         this.config = Objects.requireNonNull(config, "config");
     }
 
-    public LoginChallenge createChallenge(int transactionId) {
+    public VelocityForwardingSession beginSession(int transactionId)
+            throws VelocityForwardingException {
+        return new VelocityForwardingSession(this, transactionId);
+    }
+
+    public LoginChallenge createChallenge(int transactionId)
+            throws VelocityForwardingException {
         if (!config.enabled()) {
-            throw new IllegalStateException("Velocity forwarding is disabled");
+            throw new VelocityForwardingException(
+                    ForwardingError.FORWARDING_DISABLED,
+                    "Velocity forwarding is disabled"
+            );
         }
         return new LoginChallenge(
                 transactionId,
@@ -30,7 +39,7 @@ public final class VelocityForwardingLoginSupport {
         if (response == null) {
             if (config.requireProxy()) {
                 throw new VelocityForwardingException(
-                        ForwardingError.PAYLOAD_TOO_SMALL,
+                        ForwardingError.MISSING_RESPONSE,
                         "This server requires a Velocity proxy connection"
                 );
             }
