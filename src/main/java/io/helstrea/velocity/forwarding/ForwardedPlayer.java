@@ -14,7 +14,7 @@ public record ForwardedPlayer(
         ForwardingExtension extension
 ) {
     public ForwardedPlayer {
-        VelocityForwardingVersion.fromId(forwardingVersion);
+        requireVersion(forwardingVersion);
         address = Objects.requireNonNull(address, "address");
         playerId = Objects.requireNonNull(playerId, "playerId");
         username = Objects.requireNonNull(username, "username");
@@ -44,6 +44,17 @@ public record ForwardedPlayer(
             return VelocityForwardingVersion.fromId(forwardingVersion);
         } catch (VelocityForwardingException exception) {
             throw new IllegalStateException("Forwarded player contains an invalid version", exception);
+        }
+    }
+
+    private static void requireVersion(int forwardingVersion) {
+        try {
+            VelocityForwardingVersion.fromId(forwardingVersion);
+        } catch (VelocityForwardingException exception) {
+            throw new IllegalArgumentException(
+                    "Unsupported Velocity forwarding version: " + forwardingVersion,
+                    exception
+            );
         }
     }
 }
