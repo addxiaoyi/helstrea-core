@@ -124,7 +124,7 @@ public final class VelocityForwardingSelfTest {
         VelocityForwardingLoginSupport support =
                 new VelocityForwardingLoginSupport(codec(SECRET), config);
         expect(
-                ForwardingError.PAYLOAD_TOO_SMALL,
+                ForwardingError.MISSING_RESPONSE,
                 () -> support.acceptResponse(null)
         );
     }
